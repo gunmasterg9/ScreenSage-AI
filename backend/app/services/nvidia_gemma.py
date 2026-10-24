@@ -128,9 +128,14 @@ class NvidiaGemmaService:
         self.endpoint = f"{self.base_url}/chat/completions"
         self.timeout = timeout or settings.INFERENCE_TIMEOUT_SECONDS
 
+    @property
+    def current_api_key(self) -> str:
+        return (self.api_key or settings.NVIDIA_API_KEY or os.getenv("NVIDIA_API_KEY", "")).strip()
+
     def is_configured(self) -> bool:
         """Check if NVIDIA API key is configured."""
-        return bool(self.api_key and len(self.api_key.strip()) > 5)
+        key = self.current_api_key
+        return bool(key and len(key) > 5)
 
     def _get_headers(self) -> Dict[str, str]:
         """Construct authorization headers without leaking key."""
@@ -139,8 +144,14 @@ class NvidiaGemmaService:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="NVIDIA API key is not configured. Please set NVIDIA_API_KEY in the backend environment or .env file.",
             )
+        key = self.current_api_key
+        if key.lower().startswith("bearer "):
+            auth_header = key
+        else:
+            auth_header = f"Bearer {key}"
+
         return {
-            "Authorization": f"Bearer {self.api_key.strip()}",
+            "Authorization": auth_header,
             "Content-Type": "application/json",
             "Accept": "application/json",
         }

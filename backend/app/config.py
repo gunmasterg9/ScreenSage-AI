@@ -1,8 +1,21 @@
 """Configuration settings for ScreenSage AI backend."""
 
 import os
+from pathlib import Path
 from pydantic_settings import BaseSettings
 from typing import List
+from dotenv import load_dotenv
+
+# Search for .env in project root and backend dir
+root_env = Path(__file__).resolve().parent.parent.parent / ".env"
+backend_env = Path(__file__).resolve().parent.parent / ".env"
+
+if root_env.exists():
+    load_dotenv(root_env)
+elif backend_env.exists():
+    load_dotenv(backend_env)
+else:
+    load_dotenv()
 
 
 class Settings(BaseSettings):
@@ -44,7 +57,6 @@ class Settings(BaseSettings):
     ]
 
     model_config = {
-        "env_file": ".env",
         "extra": "ignore",
     }
 
