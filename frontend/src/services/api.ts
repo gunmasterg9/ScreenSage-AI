@@ -6,7 +6,7 @@ import {
   SupportedLanguage,
 } from '../types';
 
-const API_BASE = '/api';
+const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/, '') || '/api';
 
 export async function checkHealth(): Promise<HealthResponse> {
   const resp = await fetch(`${API_BASE}/health`);
