@@ -1,5 +1,5 @@
 """FastAPI application entrypoint for ScreenSage AI.
-Upgraded with NVIDIA-hosted google/gemma-4-31b-it multimodal integration.
+Powered by Google Gemini API / Gemma 4 multimodal integration using official google-genai SDK.
 """
 
 from datetime import datetime, timezone
@@ -21,12 +21,12 @@ from backend.app.schemas import (
 )
 from backend.app.image_utils import validate_and_process_image
 from backend.app.session_manager import session_manager
-from backend.app.services.nvidia_gemma import nvidia_service
+from backend.app.services.google_gemini import google_service
 
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    description="Understand any screen. Take the next step. Powered by NVIDIA google/gemma-4-31b-it.",
+    description="Understand any screen. Take the next step. Powered by Google Gemini / Gemma 4.",
 )
 
 # CORS configuration
@@ -42,20 +42,21 @@ app.add_middleware(
 @app.get("/api/health", response_model=HealthResponse)
 async def health_check():
     """
-    Check backend health and NVIDIA Gemma 4 configuration status.
+    Check backend health and Google Gemini API configuration status.
     """
-    has_key = nvidia_service.is_configured()
+    has_key = google_service.is_configured()
     status_label = "ok" if has_key else "warning"
     msg = (
-        f"Ready: NVIDIA {settings.NVIDIA_MODEL} is configured and active."
+        f"Ready: Google {settings.GOOGLE_GEMINI_MODEL} is configured and active."
         if has_key
-        else "NVIDIA API key not set. Set NVIDIA_API_KEY in the backend .env file to enable inference."
+        else "Google API key not set. Set GOOGLE_API_KEY in the backend .env file to enable inference."
     )
 
     return HealthResponse(
         status=status_label,
+        google_configured=has_key,
         nvidia_configured=has_key,
-        model=settings.NVIDIA_MODEL,
+        model=settings.GOOGLE_GEMINI_MODEL,
         tagline=settings.PRODUCT_TAGLINE,
         message=msg,
     )
@@ -66,13 +67,19 @@ async def ai_status():
     """
     Retrieve AI configuration status without exposing credentials.
     """
+    has_key = google_service.is_configured()
     return AIStatusResponse(
-        configured=nvidia_service.is_configured(),
-        model=settings.NVIDIA_MODEL,
-        provider="NVIDIA",
-        has_key=nvidia_service.is_configured(),
+        configured=has_key,
+        model=settings.GOOGLE_GEMINI_MODEL,
+        provider="Google Gemini API",
+        has_key=has_key,
         tagline=settings.PRODUCT_TAGLINE,
-        endpoint=nvidia_service.endpoint,
+        endpoint="Google Gen AI API (google-genai)",
+        privacy_disclosure=(
+            "Privacy notice: Selected screenshots and questions are processed securely via Google's hosted Gemini API. "
+            "Screenshots remain in-memory only on this server for the duration of your session (1 hour TTL) "
+            "or until you explicitly click Clear."
+        ),
     )
 
 
@@ -83,7 +90,7 @@ async def analyze_screenshot(
     language: str = Form(default="en", description="Explanation language ('en', 'hi', 'gu')"),
 ):
     """
-    Analyze an uploaded screenshot using NVIDIA-hosted google/gemma-4-31b-it.
+    Analyze an uploaded screenshot using Google Gemini / Gemma 4 multimodal model.
     Validates image, prepares multimodal payload, and returns structured grounded explanation.
     """
     if not question.strip():
@@ -107,7 +114,7 @@ async def analyze_screenshot(
         content_type=image.content_type or "image/png"
     )
 
-    # Determine correct MIME type for data URL
+    # Determine correct MIME type
     format_lower = metadata.get("format", "png").lower()
     mime_type = "image/jpeg" if format_lower in ("jpg", "jpeg") else (
         "image/webp" if format_lower == "webp" else "image/png"
@@ -117,8 +124,8 @@ async def analyze_screenshot(
     session_id = session_manager.create_session(image_b64=b64_image, metadata=metadata)
     session = session_manager.get_session(session_id)
 
-    # 4. Perform NVIDIA Gemma 4 Multimodal Inference
-    explanation, used_tag, duration = await nvidia_service.analyze_screenshot(
+    # 4. Perform Google Gemini Multimodal Inference
+    explanation, used_tag, duration = await google_service.analyze_screenshot(
         image_b64=b64_image,
         question=question,
         language=language,
@@ -156,9 +163,9 @@ async def analyze_alias(
 @app.post("/api/generate-text", response_model=TextPromptResponse)
 async def generate_text_endpoint(req: TextPromptRequest):
     """
-    Test endpoint for text-only queries with google/gemma-4-31b-it.
+    Test endpoint for text-only queries with Google Gemini / Gemma 4 model.
     """
-    answer, model_name, duration = await nvidia_service.generate_text(req.prompt)
+    answer, model_name, duration = await google_service.generate_text(req.prompt)
     return TextPromptResponse(
         answer=answer,
         model=model_name,
@@ -194,7 +201,7 @@ async def follow_up_question(request: FollowUpRequest):
         "image/webp" if format_lower == "webp" else "image/png"
     )
 
-    follow_up_resp, used_tag, duration = await nvidia_service.follow_up_chat(
+    follow_up_resp, used_tag, duration = await google_service.follow_up_chat(
         image_b64=session.image_b64,
         question=request.question,
         summary=summary,

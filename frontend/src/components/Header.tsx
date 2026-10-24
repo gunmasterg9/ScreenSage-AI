@@ -1,5 +1,5 @@
 import React from 'react';
-import { Eye, ShieldCheck, Sparkles, Cpu } from 'lucide-react';
+import { Eye, ShieldCheck, Cpu } from 'lucide-react';
 import { AIStatusResponse } from '../types';
 
 interface HeaderProps {
@@ -7,7 +7,8 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ aiStatus }) => {
-  const modelName = aiStatus?.model || 'google/gemma-4-31b-it';
+  const modelName = aiStatus?.model || 'gemma-4-31b-it';
+  const provider = aiStatus?.provider || 'Google Gemini API';
   const isConfigured = aiStatus?.configured ?? false;
 
   return (
@@ -24,7 +25,7 @@ export const Header: React.FC<HeaderProps> = ({ aiStatus }) => {
                 ScreenSage <span className="text-coral-500">AI</span>
               </h1>
               <span className="text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-forest-100 text-forest-800 border border-forest-200">
-                NVIDIA NIM
+                Google Gen AI
               </span>
             </div>
             <p className="text-xs text-sage-muted font-medium">
@@ -33,7 +34,7 @@ export const Header: React.FC<HeaderProps> = ({ aiStatus }) => {
           </div>
         </div>
 
-        {/* Right Indicators: NVIDIA Model Tag + Key Status */}
+        {/* Right Indicators: Model Tag + Key Status */}
         <div className="flex flex-wrap items-center gap-2.5">
           {/* Privacy badge */}
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sage-subtle border border-sage-border text-xs text-forest-800 font-medium">

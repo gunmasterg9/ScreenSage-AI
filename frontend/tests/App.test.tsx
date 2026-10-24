@@ -16,11 +16,11 @@ beforeEach(() => {
         json: () =>
           Promise.resolve({
             configured: true,
-            model: 'google/gemma-4-31b-it',
-            provider: 'NVIDIA',
+            model: 'gemma-4-31b-it',
+            provider: 'Google Gemini API',
             has_key: true,
             tagline: 'Understand any screen. Take the next step.',
-            endpoint: 'https://integrate.api.nvidia.com/v1/chat/completions',
+            endpoint: 'Google Gen AI API (google-genai)',
           }),
       });
     }
@@ -30,8 +30,9 @@ beforeEach(() => {
         json: () =>
           Promise.resolve({
             status: 'ok',
+            google_configured: true,
             nvidia_configured: true,
-            model: 'google/gemma-4-31b-it',
+            model: 'gemma-4-31b-it',
             tagline: 'Understand any screen. Take the next step.',
             message: 'Ready',
           }),
@@ -48,24 +49,24 @@ beforeEach(() => {
 });
 
 describe('ScreenSage AI Frontend Components', () => {
-  it('renders Header with branding, tagline, and NVIDIA badge', () => {
+  it('renders Header with branding, tagline, and Google Gen AI badge', () => {
     render(
       <Header
         aiStatus={{
           configured: true,
-          model: 'google/gemma-4-31b-it',
-          provider: 'NVIDIA',
+          model: 'gemma-4-31b-it',
+          provider: 'Google Gemini API',
           has_key: true,
           tagline: 'Understand any screen. Take the next step.',
-          endpoint: 'https://integrate.api.nvidia.com/v1/chat/completions',
+          endpoint: 'Google Gen AI API',
         }}
       />
     );
 
     expect(screen.getByText(/ScreenSage/i)).toBeInTheDocument();
     expect(screen.getByText(/Understand any screen. Take the next step./i)).toBeInTheDocument();
-    expect(screen.getByText(/NVIDIA NIM/i)).toBeInTheDocument();
-    expect(screen.getByText(/google\/gemma-4-31b-it/i)).toBeInTheDocument();
+    expect(screen.getByText(/Google Gen AI/i)).toBeInTheDocument();
+    expect(screen.getByText(/gemma-4-31b-it/i)).toBeInTheDocument();
   });
 
   it('renders all suggested question chips and triggers callback on click', () => {

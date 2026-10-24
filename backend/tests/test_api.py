@@ -1,4 +1,4 @@
-"""API integration tests for ScreenSage AI endpoints with NVIDIA Gemma 4."""
+"""API integration tests for ScreenSage AI endpoints with Google Gemini / Gemma 4."""
 
 import io
 import pytest
@@ -34,8 +34,9 @@ def test_ai_status_endpoint_never_exposes_secret():
     data = response.json()
     assert "configured" in data
     assert "model" in data
-    assert data["provider"] == "NVIDIA"
+    assert data["provider"] == "Google Gemini API"
     assert "has_key" in data
+    assert "privacy_disclosure" in data
     # Ensure no secret key field is present in response
     assert "api_key" not in data
     assert "key" not in data or data["key"] is None if "key" in data else True
@@ -65,8 +66,8 @@ def test_analyze_screenshot_success():
     )
 
     with patch(
-        "backend.app.services.nvidia_gemma.nvidia_service.analyze_screenshot",
-        return_value=(fake_explanation, "google/gemma-4-31b-it", 0.95),
+        "backend.app.services.google_gemini.google_service.analyze_screenshot",
+        return_value=(fake_explanation, "gemma-4-31b-it", 0.95),
     ):
         response = client.post(
             "/api/analyze-screenshot",
@@ -79,13 +80,13 @@ def test_analyze_screenshot_success():
         assert data["language"] == "en"
         assert data["explanation"]["screen_summary"] == "A dashboard showing system resources."
         assert data["explanation"]["coordinate_support_verified"] is True
-        assert data["model_tag"] == "google/gemma-4-31b-it"
+        assert data["model_tag"] == "gemma-4-31b-it"
 
         session_id = data["session_id"]
 
         # Test follow-up endpoint
         with patch(
-            "backend.app.services.nvidia_gemma.nvidia_service.follow_up_chat"
+            "backend.app.services.google_gemini.google_service.follow_up_chat"
         ) as mock_follow:
             from backend.app.schemas import FollowUpResponse
             mock_follow.return_value = (
@@ -97,10 +98,10 @@ def test_analyze_screenshot_success():
                     visible_evidence=["Blue background"],
                     uncertainties=[],
                     referenced_elements=[],
-                    model_tag="google/gemma-4-31b-it",
+                    model_tag="gemma-4-31b-it",
                     inference_duration_seconds=0.45,
                 ),
-                "google/gemma-4-31b-it",
+                "gemma-4-31b-it",
                 0.45,
             )
 
@@ -146,8 +147,8 @@ def test_analyze_invalid_file_format():
 
 def test_text_prompt_endpoint():
     with patch(
-        "backend.app.services.nvidia_gemma.nvidia_service.generate_text",
-        return_value=("391", "google/gemma-4-31b-it", 0.5),
+        "backend.app.services.google_gemini.google_service.generate_text",
+        return_value=("391", "gemma-4-31b-it", 0.5),
     ):
         response = client.post(
             "/api/generate-text",
@@ -156,7 +157,7 @@ def test_text_prompt_endpoint():
         assert response.status_code == 200
         data = response.json()
         assert data["answer"] == "391"
-        assert data["model"] == "google/gemma-4-31b-it"
+        assert data["model"] == "gemma-4-31b-it"
 
 
 def test_follow_up_empty_question():

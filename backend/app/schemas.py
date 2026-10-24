@@ -100,29 +100,31 @@ class FollowUpRequest(BaseModel):
 
 
 class FollowUpResponse(BaseModel):
-    session_id: str
-    question: str
+    session_id: str = ""
+    question: str = ""
     answer: str
     suggested_next_steps: List[str] = Field(default_factory=list)
     visible_evidence: List[str] = Field(default_factory=list)
     uncertainties: List[str] = Field(default_factory=list)
     referenced_elements: List[UIElement] = Field(default_factory=list)
-    model_tag: str
-    inference_duration_seconds: float
+    model_tag: str = ""
+    inference_duration_seconds: float = 0.0
 
 
 class AIStatusResponse(BaseModel):
     configured: bool
     model: str
-    provider: str = "NVIDIA"
+    provider: str = "Google Gemini API"
     has_key: bool
     tagline: str
-    endpoint: str
+    endpoint: str = "Google Gen AI API"
+    privacy_disclosure: str = "Selected screenshots are held in server memory for 1 hour TTL or until explicitly deleted, and processed via Google's hosted API."
 
 
 class HealthResponse(BaseModel):
     status: str
-    nvidia_configured: bool
+    google_configured: bool = True
+    nvidia_configured: bool = True  # Backward-compatibility alias
     model: str
     tagline: str
     message: str

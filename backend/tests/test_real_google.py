@@ -1,12 +1,12 @@
-"""Real live integration tests for NVIDIA Gemma 4 API.
-Runs only when NVIDIA_API_KEY is configured in the environment or .env file.
+"""Real live integration tests for Google Gemini / Gemma 4 API.
+Runs only when GOOGLE_API_KEY is configured in the environment or .env file.
 Never claims a real API test passed unless it actually ran against the live endpoint.
 """
 
 import io
 import pytest
 from PIL import Image, ImageDraw
-from backend.app.services.nvidia_gemma import nvidia_service
+from backend.app.services.google_gemini import google_service
 from backend.app.image_utils import validate_and_process_image
 
 
@@ -25,7 +25,7 @@ def create_sample_screenshot() -> bytes:
     draw.text((80, 170), "Memory Usage: 42%", fill="#f8fafc")
 
     # Draw action button
-    draw.rectangle([80, 240, 260, 290], fill="#e06d53")
+    draw.rectangle([80, 240, 280, 290], fill="#e06d53")
     draw.text((100, 255), "Restart Service", fill="#ffffff")
 
     buf = io.BytesIO()
@@ -34,33 +34,33 @@ def create_sample_screenshot() -> bytes:
 
 
 @pytest.mark.asyncio
-async def test_real_nvidia_test_a_text_multiplication():
+async def test_real_google_text_multiplication():
     """
     Test A: Text API
     Ask the model: 'What is 17 * 23?'
-    Expected answer: '391'
+    Expected answer contains: '391'
     """
-    if not nvidia_service.is_configured():
-        pytest.skip("Skipping Test A: NVIDIA_API_KEY is not configured in environment or .env")
+    if not google_service.is_configured():
+        pytest.skip("Skipping Test A: GOOGLE_API_KEY is not configured in environment or .env")
 
-    answer, model, duration = await nvidia_service.generate_text("What is 17 * 23? Return only the numeric answer.")
+    answer, model, duration = await google_service.generate_text("What is 17 * 23? Return only the numeric answer.")
     assert "391" in answer
-    print(f"\n[REAL NVIDIA TEST A PASSED] Model: {model}, Duration: {duration}s, Answer: {answer}")
+    print(f"\n[REAL GOOGLE TEST A PASSED] Model: {model}, Duration: {duration}s, Answer: {answer}")
 
 
 @pytest.mark.asyncio
-async def test_real_nvidia_test_b_screenshot_multimodal():
+async def test_real_google_screenshot_multimodal():
     """
     Test B: Screenshot API
     Upload an actual screenshot and ask a question whose answer can be verified visually.
     """
-    if not nvidia_service.is_configured():
-        pytest.skip("Skipping Test B: NVIDIA_API_KEY is not configured in environment or .env")
+    if not google_service.is_configured():
+        pytest.skip("Skipping Test B: GOOGLE_API_KEY is not configured in environment or .env")
 
     raw_bytes = create_sample_screenshot()
     b64_img, meta = validate_and_process_image(raw_bytes, "image/png")
 
-    explanation, model, duration = await nvidia_service.analyze_screenshot(
+    explanation, model, duration = await google_service.analyze_screenshot(
         image_b64=b64_img,
         question="What is the exact text on the button in this screenshot?",
         language="en",
@@ -72,6 +72,6 @@ async def test_real_nvidia_test_b_screenshot_multimodal():
         "restart" in el.element_name.lower() or "restart" in (el.visible_text or "").lower()
         for el in explanation.visible_ui_elements
     )
-    print(f"\n[REAL NVIDIA TEST B PASSED] Model: {model}, Duration: {duration}s")
+    print(f"\n[REAL GOOGLE TEST B PASSED] Model: {model}, Duration: {duration}s")
     print(f"Summary: {explanation.screen_summary}")
     print(f"Answer: {explanation.answer_to_user_question}")

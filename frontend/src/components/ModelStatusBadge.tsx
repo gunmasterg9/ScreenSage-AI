@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Check, Copy, AlertTriangle, RefreshCw, Cpu, Key, Sparkles } from 'lucide-react';
+import { Check, Copy, RefreshCw, Cpu, Key, Sparkles, ShieldCheck } from 'lucide-react';
 import { AIStatusResponse } from '../types';
 
 interface ModelStatusBadgeProps {
@@ -15,9 +15,10 @@ export const ModelStatusBadge: React.FC<ModelStatusBadgeProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const isConfigured = aiStatus?.configured ?? false;
-  const modelName = aiStatus?.model || 'google/gemma-4-31b-it';
+  const modelName = aiStatus?.model || 'gemma-4-31b-it';
+  const provider = aiStatus?.provider || 'Google Gemini API';
 
-  const envSample = `NVIDIA_API_KEY=your_nvidia_api_key_here`;
+  const envSample = `GOOGLE_API_KEY=your_google_api_key_here`;
 
   const copyEnvSample = () => {
     navigator.clipboard.writeText(envSample);
@@ -32,7 +33,7 @@ export const ModelStatusBadge: React.FC<ModelStatusBadgeProps> = ({
           <Key className="w-5 h-5 text-amber-700 mt-0.5 shrink-0" />
           <div className="flex-1 space-y-1.5">
             <div className="flex items-center justify-between">
-              <h4 className="font-bold text-amber-950 text-sm">NVIDIA API Key Required</h4>
+              <h4 className="font-bold text-amber-950 text-sm">Google API Key Required</h4>
               <button
                 onClick={onRefresh}
                 disabled={isLoading}
@@ -44,9 +45,9 @@ export const ModelStatusBadge: React.FC<ModelStatusBadgeProps> = ({
             </div>
 
             <p className="text-amber-900 leading-relaxed">
-              ScreenSage AI connects directly to NVIDIA's hosted{' '}
-              <strong className="font-mono text-amber-950">{modelName}</strong> model. No local model download required.
-              To activate inference, set your NVIDIA API key in the backend{' '}
+              ScreenSage AI connects to Google's hosted{' '}
+              <strong className="font-mono text-amber-950">{modelName}</strong> model via the official Google Gen AI SDK.
+              To activate inference, set your Google API key in the backend{' '}
               <code className="font-mono px-1 py-0.5 rounded bg-amber-200/60 font-semibold text-amber-950">.env</code> file:
             </p>
 
@@ -76,21 +77,27 @@ export const ModelStatusBadge: React.FC<ModelStatusBadgeProps> = ({
           {modelName}
         </span>
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-semibold">
-          <Sparkles className="w-3 h-3 text-emerald-600" /> Hosted NVIDIA NIM
+          <Sparkles className="w-3 h-3 text-emerald-600" /> {provider}
         </span>
       </div>
 
-      <div className="flex items-center gap-2 text-forest-700 font-medium">
-        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-        <span>Connected to NVIDIA API</span>
-        <button
-          onClick={onRefresh}
-          disabled={isLoading}
-          className="p-1 rounded hover:bg-forest-100 transition text-forest-700"
-          title="Refresh connection status"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-        </button>
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1 text-[11px] text-forest-700">
+          <ShieldCheck className="w-3.5 h-3.5 text-forest-600" />
+          <span>RAM-only session (1h TTL)</span>
+        </div>
+        <div className="flex items-center gap-1.5 text-forest-700 font-medium">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span>Connected</span>
+          <button
+            onClick={onRefresh}
+            disabled={isLoading}
+            className="p-1 rounded hover:bg-forest-100 transition text-forest-700"
+            title="Refresh connection status"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </div>
     </div>
   );
