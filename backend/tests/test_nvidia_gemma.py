@@ -160,3 +160,31 @@ async def test_multimodal_malformed_json_response(service):
                 question="What is this?",
             )
         assert exc_info.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_transient_retry_success_on_second_attempt(service):
+    """Verify that a transient 503 error is retried once and succeeds if second attempt returns 200."""
+    resp_503 = httpx.Response(503, text="Service Temporarily Unavailable")
+    resp_200 = httpx.Response(
+        200,
+        json={"choices": [{"message": {"content": "42"}}]},
+    )
+
+    with patch("asyncio.sleep", return_value=None):
+        with patch("httpx.AsyncClient.post", side_effect=[resp_503, resp_200]) as mock_post:
+            answer, model, duration = await service.generate_text("Meaning of life?")
+            assert answer == "42"
+            assert mock_post.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_connection_error_retry_and_eventual_503(service):
+    """Verify that connection failure is retried once before raising 503."""
+    with patch("asyncio.sleep", return_value=None):
+        with patch("httpx.AsyncClient.post", side_effect=httpx.ConnectError("Failed to connect")) as mock_post:
+            with pytest.raises(HTTPException) as exc_info:
+                await service.generate_text("Hello")
+            assert exc_info.value.status_code == 503
+            assert mock_post.call_count == 2
+

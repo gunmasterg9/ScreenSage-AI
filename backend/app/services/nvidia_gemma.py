@@ -2,7 +2,9 @@
 Integrates with hosted google/gemma-4-31b-it on https://integrate.api.nvidia.com/v1.
 """
 
+import asyncio
 import json
+import logging
 import re
 import time
 from typing import Optional, Tuple, Dict, Any, List
@@ -15,6 +17,8 @@ from backend.app.schemas import (
     UIElement,
     FollowUpResponse,
 )
+
+logger = logging.getLogger("screensage.nvidia_gemma")
 
 SYSTEM_PROMPT_BASE = """You are ScreenSage AI, an expert vision-grounded assistant designed to explain screenshots of websites, desktop software, settings, dialogs, and error messages.
 Product Tagline: "Understand any screen. Take the next step."
@@ -248,66 +252,136 @@ class NvidiaGemmaService:
         return ui_elements, verified_any
 
     async def _send_chat_completion(self, payload: Dict[str, Any]) -> Tuple[Dict[str, Any], float]:
-        """Send chat completion request to NVIDIA API with error handling."""
+        """
+        Send chat completion request to NVIDIA API with telemetry, safe error masking, and controlled transient retry.
+        Never logs API keys, prompt texts, or base64 screenshot contents.
+        """
         headers = self._get_headers()
-        start_time = time.perf_counter()
+        masked_model = str(payload.get("model", self.model))
+        msg_count = len(payload.get("messages", []))
+        max_retries = 1
+        total_duration = 0.0
 
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(
-                    self.endpoint,
-                    headers=headers,
-                    json=payload,
+        for attempt in range(max_retries + 1):
+            start_time = time.perf_counter()
+            logger.info(
+                "NVIDIA API request dispatched: endpoint=%s, model=%s, messages=%d, attempt=%d/%d, timeout=%.1fs",
+                self.endpoint,
+                masked_model,
+                msg_count,
+                attempt + 1,
+                max_retries + 1,
+                self.timeout,
+            )
+
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    response = await client.post(
+                        self.endpoint,
+                        headers=headers,
+                        json=payload,
+                    )
+            except httpx.TimeoutException:
+                elapsed = round(time.perf_counter() - start_time, 2)
+                total_duration += elapsed
+                logger.warning(
+                    "NVIDIA API inference timed out after %.2fs on attempt %d/%d (model=%s)",
+                    elapsed,
+                    attempt + 1,
+                    max_retries + 1,
+                    masked_model,
                 )
-        except httpx.TimeoutException:
-            raise HTTPException(
-                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-                detail=f"NVIDIA API inference timed out after {self.timeout}s. Please retry with a lighter query.",
-            )
-        except httpx.ConnectError:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Could not establish connection to NVIDIA API endpoint. Please check your internet connectivity.",
-            )
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Network error contacting NVIDIA API: {str(e)}",
+                # Avoid duplicate expensive requests on long-running timeouts
+                raise HTTPException(
+                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                    detail=(
+                        f"NVIDIA API inference timed out after {self.timeout}s. "
+                        "The upstream NVIDIA hosted Gemma 4 cluster (google/gemma-4-31b-it) is experiencing queue backlog or latency. "
+                        "Please retry shortly or try with a smaller screenshot."
+                    ),
+                )
+            except httpx.ConnectError as ce:
+                elapsed = round(time.perf_counter() - start_time, 2)
+                total_duration += elapsed
+                logger.warning(
+                    "Connection error contacting NVIDIA API on attempt %d/%d: %s",
+                    attempt + 1,
+                    max_retries + 1,
+                    type(ce).__name__,
+                )
+                if attempt < max_retries:
+                    logger.info("Retrying NVIDIA connection after 1.5s backoff...")
+                    await asyncio.sleep(1.5)
+                    continue
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Could not establish connection to NVIDIA API endpoint (https://integrate.api.nvidia.com). Please check internet connectivity.",
+                )
+            except HTTPException:
+                raise
+            except Exception as e:
+                elapsed = round(time.perf_counter() - start_time, 2)
+                total_duration += elapsed
+                logger.error("Unexpected network error contacting NVIDIA API: %s: %s", type(e).__name__, str(e))
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Network error contacting NVIDIA API: {type(e).__name__}",
+                )
+
+            elapsed = round(time.perf_counter() - start_time, 2)
+            total_duration += elapsed
+
+            logger.info(
+                "NVIDIA API response received: status=%d, attempt=%d, duration=%.2fs",
+                response.status_code,
+                attempt + 1,
+                elapsed,
             )
 
-        duration = round(time.perf_counter() - start_time, 2)
+            # Controlled single retry for transient upstream gateway failures (502, 503, 504)
+            if response.status_code in (502, 503, 504) and attempt < max_retries:
+                logger.warning(
+                    "Upstream NVIDIA API returned transient HTTP %d on attempt %d. Retrying once after 1.5s backoff...",
+                    response.status_code,
+                    attempt + 1,
+                )
+                await asyncio.sleep(1.5)
+                continue
 
-        # Handle HTTP error statuses from NVIDIA API
-        if response.status_code == 401:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="NVIDIA API authentication failed. Please verify your NVIDIA_API_KEY.",
-            )
-        elif response.status_code == 429:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="NVIDIA API rate limit reached. Please wait a moment before trying again.",
-            )
-        elif response.status_code >= 500:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"NVIDIA API server error ({response.status_code}). Please retry shortly.",
-            )
-        elif response.status_code != 200:
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=f"NVIDIA API request failed ({response.status_code}): {response.text[:200]}",
-            )
+            # Handle HTTP error statuses from NVIDIA API
+            if response.status_code == 401:
+                logger.error("NVIDIA API authentication failed (HTTP 401).")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="NVIDIA API authentication failed. Please verify your NVIDIA_API_KEY has active credits at build.nvidia.com.",
+                )
+            elif response.status_code == 429:
+                logger.warning("NVIDIA API rate limit exceeded (HTTP 429).")
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="NVIDIA API rate limit reached (HTTP 429). Please wait a few seconds before submitting another request.",
+                )
+            elif response.status_code >= 500:
+                logger.error("NVIDIA API server error (HTTP %d).", response.status_code)
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"NVIDIA API server error ({response.status_code}). Upstream NIM service is currently unavailable or experiencing high load.",
+                )
+            elif response.status_code != 200:
+                logger.error("NVIDIA API returned HTTP %d: %s", response.status_code, response.text[:120])
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"NVIDIA API request failed ({response.status_code}): {response.text[:150]}",
+                )
 
-        try:
-            return response.json(), duration
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Failed to parse NVIDIA API JSON response: {str(e)}",
-            )
+            try:
+                return response.json(), total_duration
+            except Exception as e:
+                logger.error("Failed to parse JSON response: %s", str(e))
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Failed to parse NVIDIA API JSON response: {str(e)}",
+                )
 
     async def generate_text(self, prompt: str) -> Tuple[str, str, float]:
         """
