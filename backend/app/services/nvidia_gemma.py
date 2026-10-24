@@ -122,7 +122,7 @@ class NvidiaGemmaService:
         base_url: Optional[str] = None,
         timeout: Optional[float] = None,
     ):
-        self.api_key = api_key or settings.NVIDIA_API_KEY
+        self.api_key = api_key if api_key is not None else settings.NVIDIA_API_KEY
         self.model = model or settings.NVIDIA_MODEL
         self.base_url = (base_url or settings.NVIDIA_BASE_URL).rstrip("/")
         self.endpoint = f"{self.base_url}/chat/completions"
@@ -130,7 +130,8 @@ class NvidiaGemmaService:
 
     @property
     def current_api_key(self) -> str:
-        return (self.api_key or settings.NVIDIA_API_KEY or os.getenv("NVIDIA_API_KEY", "")).strip()
+        key = self.api_key if self.api_key is not None else (settings.NVIDIA_API_KEY or os.getenv("NVIDIA_API_KEY", ""))
+        return (key or "").strip()
 
     def is_configured(self) -> bool:
         """Check if NVIDIA API key is configured."""
