@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     ]
     ALLOWED_IMAGE_FORMATS: List[str] = ["PNG", "JPEG", "WEBP"]
 
+    # Batch processing limits & concurrency
+    MAX_BATCH_IMAGES: int = int(os.getenv("MAX_BATCH_IMAGES", "10"))
+    MAX_BATCH_TOTAL_SIZE_BYTES: int = int(os.getenv("MAX_BATCH_TOTAL_SIZE_BYTES", str(30 * 1024 * 1024)))  # 30 MB
+    BATCH_CONCURRENCY: int = int(os.getenv("BATCH_CONCURRENCY", "2"))
+
     # Session storage (in-memory)
     SESSION_TTL_SECONDS: int = int(os.getenv("SESSION_TTL_SECONDS", "3600"))  # 1 hour in-memory TTL
 

@@ -111,6 +111,35 @@ class FollowUpResponse(BaseModel):
     inference_duration_seconds: float = 0.0
 
 
+class BatchItemResult(BaseModel):
+    item_id: str
+    filename: str
+    success: bool
+    status: str = "completed"  # "completed" | "error"
+    analysis: Optional[AnalysisResponse] = None
+    error: Optional[str] = None
+
+
+class BatchAnalysisResponse(BaseModel):
+    batch_id: str
+    total_images: int
+    successful_count: int
+    failed_count: int
+    results: List[BatchItemResult]
+    combined_summary: Optional[str] = None
+    question: str
+    language: str = "en"
+    total_duration_seconds: float
+    timestamp: str
+
+
+class BatchSessionDeleteResponse(BaseModel):
+    batch_id: str
+    cleared_count: int
+    cleared: bool = True
+    message: str
+
+
 class AIStatusResponse(BaseModel):
     configured: bool
     model: str
@@ -119,6 +148,9 @@ class AIStatusResponse(BaseModel):
     tagline: str
     endpoint: str = "Google Gen AI API"
     privacy_disclosure: str = "Selected screenshots are held in server memory for 1 hour TTL or until explicitly deleted, and processed via Google's hosted API."
+    max_upload_size_bytes: int = 10 * 1024 * 1024
+    max_batch_images: int = 10
+    max_batch_total_size_bytes: int = 30 * 1024 * 1024
 
 
 class HealthResponse(BaseModel):

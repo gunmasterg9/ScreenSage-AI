@@ -7,3 +7,5 @@ export { QuestionInput } from './QuestionInput';
 export { ExplanationViewer } from './ExplanationViewer';
 export { FollowUpThread } from './FollowUpThread';
 export { ErrorAlert } from './ErrorAlert';
+export { BatchQueue } from './BatchQueue';
+export { BatchSummaryViewer } from './BatchSummaryViewer';

@@ -2,8 +2,11 @@
 Powered by Google Gemini API / Gemma 4 multimodal integration using official google-genai SDK.
 """
 
+import asyncio
+import time
+import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, List, Tuple
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -18,6 +21,9 @@ from backend.app.schemas import (
     ImageMetadata,
     TextPromptRequest,
     TextPromptResponse,
+    BatchItemResult,
+    BatchAnalysisResponse,
+    BatchSessionDeleteResponse,
 )
 from backend.app.image_utils import validate_and_process_image
 from backend.app.session_manager import session_manager
@@ -80,6 +86,9 @@ async def ai_status():
             "Screenshots remain in-memory only on this server for the duration of your session (1 hour TTL) "
             "or until you explicitly click Clear."
         ),
+        max_upload_size_bytes=settings.MAX_UPLOAD_SIZE_BYTES,
+        max_batch_images=settings.MAX_BATCH_IMAGES,
+        max_batch_total_size_bytes=settings.MAX_BATCH_TOTAL_SIZE_BYTES,
     )
 
 
@@ -231,4 +240,206 @@ async def clear_session(session_id: str):
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={"session_id": session_id, "cleared": deleted, "message": "Session screenshot cleared from memory."},
+    )
+
+
+@app.post("/api/analyze-batch", response_model=BatchAnalysisResponse)
+async def analyze_batch(
+    images: List[UploadFile] = File(..., description="List of screenshot files (PNG, JPG, or WEBP)"),
+    question: str = Form(default="What are these screens showing?", description="User's inquiry across the screenshots"),
+    language: str = Form(default="en", description="Explanation language ('en', 'hi', 'gu')"),
+    generate_summary: bool = Form(default=True, description="Whether to synthesize an overarching multi-screen summary"),
+):
+    """
+    Analyze multiple screenshots with bounded concurrency using Google Gemini API.
+    Validates limits, runs concurrent grounded analyses, and synthesizes a combined summary.
+    """
+    if not question.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A question about the screenshots is required.",
+        )
+
+    if not images or len(images) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one screenshot must be provided for batch analysis.",
+        )
+
+    if len(images) > settings.MAX_BATCH_IMAGES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Batch image count ({len(images)}) exceeds maximum limit of {settings.MAX_BATCH_IMAGES} images.",
+        )
+
+    batch_id = str(uuid.uuid4())
+    start_batch_time = time.perf_counter()
+
+    # Pre-read and validate total size
+    file_payloads: List[Tuple[str, bytes, str]] = []
+    total_bytes = 0
+
+    for img in images:
+        try:
+            content = await img.read()
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to read file {img.filename}: {str(e)}",
+            )
+        total_bytes += len(content)
+        file_payloads.append((img.filename or "screenshot.png", content, img.content_type or "image/png"))
+
+    if total_bytes > settings.MAX_BATCH_TOTAL_SIZE_BYTES:
+        max_mb = settings.MAX_BATCH_TOTAL_SIZE_BYTES // (1024 * 1024)
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Total batch size ({round(total_bytes / (1024*1024), 2)} MB) exceeds maximum allowed limit of {max_mb} MB.",
+        )
+
+    semaphore = asyncio.Semaphore(settings.BATCH_CONCURRENCY)
+    created_session_ids: List[str] = []
+
+    async def process_item(idx: int, filename: str, file_bytes: bytes, content_type: str) -> BatchItemResult:
+        item_id = f"item_{idx + 1}"
+        # 1. Validate & process image
+        try:
+            b64_image, metadata = validate_and_process_image(
+                file_bytes=file_bytes,
+                content_type=content_type,
+            )
+        except HTTPException as he:
+            return BatchItemResult(
+                item_id=item_id,
+                filename=filename,
+                success=False,
+                status="error",
+                error=he.detail,
+            )
+        except Exception as ex:
+            return BatchItemResult(
+                item_id=item_id,
+                filename=filename,
+                success=False,
+                status="error",
+                error=f"Image validation failed: {str(ex)}",
+            )
+
+        format_lower = metadata.get("format", "png").lower()
+        mime_type = "image/jpeg" if format_lower in ("jpg", "jpeg") else (
+            "image/webp" if format_lower == "webp" else "image/png"
+        )
+
+        # 2. Create session
+        session_id = session_manager.create_session(image_b64=b64_image, metadata=metadata)
+        created_session_ids.append(session_id)
+        session = session_manager.get_session(session_id)
+
+        # 3. Multimodal inference under semaphore
+        async with semaphore:
+            try:
+                explanation, used_tag, duration = await google_service.analyze_screenshot(
+                    image_b64=b64_image,
+                    question=question,
+                    language=language,
+                    mime_type=mime_type,
+                )
+            except HTTPException as he:
+                return BatchItemResult(
+                    item_id=item_id,
+                    filename=filename,
+                    success=False,
+                    status="error",
+                    error=he.detail,
+                )
+            except Exception as ex:
+                return BatchItemResult(
+                    item_id=item_id,
+                    filename=filename,
+                    success=False,
+                    status="error",
+                    error=f"Inference failed: {str(ex)}",
+                )
+
+        if session:
+            session.last_explanation = explanation
+            session.add_message("user", question)
+            session.add_message("assistant", explanation.answer_to_user_question)
+
+        analysis = AnalysisResponse(
+            session_id=session_id,
+            question=question,
+            language=language,
+            explanation=explanation,
+            model_tag=used_tag,
+            inference_duration_seconds=duration,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            image_metadata=ImageMetadata(**metadata),
+        )
+
+        return BatchItemResult(
+            item_id=item_id,
+            filename=filename,
+            success=True,
+            status="completed",
+            analysis=analysis,
+        )
+
+    tasks = [
+        process_item(i, fn, bts, ct)
+        for i, (fn, bts, ct) in enumerate(file_payloads)
+    ]
+    results: List[BatchItemResult] = await asyncio.gather(*tasks)
+
+    successful = [r for r in results if r.success and r.analysis]
+    failed = [r for r in results if not r.success]
+
+    # Register all sessions for this batch so they can be deleted together
+    session_manager.register_batch(batch_id, created_session_ids)
+
+    # 4. Generate combined summary if requested and at least one image succeeded
+    combined_summary: Optional[str] = None
+    if generate_summary and len(successful) > 0:
+        summaries_for_synthesis = [
+            {
+                "filename": r.filename,
+                "summary": r.analysis.explanation.screen_summary,
+                "answer": r.analysis.explanation.answer_to_user_question,
+            }
+            for r in successful
+            if r.analysis
+        ]
+        combined_summary = await google_service.synthesize_batch_summary(
+            question=question,
+            screen_summaries=summaries_for_synthesis,
+            language=language,
+        )
+
+    total_duration = round(time.perf_counter() - start_batch_time, 2)
+
+    return BatchAnalysisResponse(
+        batch_id=batch_id,
+        total_images=len(images),
+        successful_count=len(successful),
+        failed_count=len(failed),
+        results=results,
+        combined_summary=combined_summary,
+        question=question,
+        language=language,
+        total_duration_seconds=total_duration,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+@app.delete("/api/batch-session/{batch_id}", response_model=BatchSessionDeleteResponse)
+async def clear_batch_session(batch_id: str):
+    """
+    Privacy endpoint: Explicitly purge all screenshots in a batch session from server RAM.
+    """
+    cleared_count = session_manager.delete_batch(batch_id)
+    return BatchSessionDeleteResponse(
+        batch_id=batch_id,
+        cleared_count=cleared_count,
+        cleared=True,
+        message=f"Purged {cleared_count} batch screenshot session(s) from memory.",
     )

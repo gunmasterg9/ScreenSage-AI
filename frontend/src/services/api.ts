@@ -4,6 +4,8 @@ import {
   AnalysisResponse,
   FollowUpResponse,
   SupportedLanguage,
+  BatchAnalysisResponse,
+  BatchSessionDeleteResponse,
 } from '../types';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/, '') || '/api';
@@ -98,4 +100,46 @@ export async function generateText(prompt: string): Promise<{ answer: string; mo
   }
 
   return resp.json();
+}
+
+export async function analyzeBatch(
+  imageFiles: File[],
+  question: string,
+  language: SupportedLanguage = 'en',
+  generateSummary: boolean = true,
+  signal?: AbortSignal
+): Promise<BatchAnalysisResponse> {
+  const formData = new FormData();
+  imageFiles.forEach((file) => {
+    formData.append('images', file);
+  });
+  formData.append('question', question);
+  formData.append('language', language);
+  formData.append('generate_summary', generateSummary ? 'true' : 'false');
+
+  const resp = await fetch(`${API_BASE}/analyze-batch`, {
+    method: 'POST',
+    body: formData,
+    signal,
+  });
+
+  if (!resp.ok) {
+    const errorData = await resp.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Batch analysis failed with status ${resp.status}`);
+  }
+
+  return resp.json();
+}
+
+export async function clearBatchSession(batchId: string): Promise<BatchSessionDeleteResponse | void> {
+  try {
+    const resp = await fetch(`${API_BASE}/batch-session/${batchId}`, {
+      method: 'DELETE',
+    });
+    if (resp.ok) {
+      return resp.json();
+    }
+  } catch (err) {
+    console.error('Error clearing batch session:', err);
+  }
 }

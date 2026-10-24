@@ -63,6 +63,9 @@ export interface AIStatusResponse {
   has_key: boolean;
   tagline: string;
   endpoint: string;
+  max_upload_size_bytes?: number;
+  max_batch_images?: number;
+  max_batch_total_size_bytes?: number;
 }
 
 export interface HealthResponse {
@@ -74,3 +77,41 @@ export interface HealthResponse {
 }
 
 export type SupportedLanguage = 'en' | 'hi' | 'gu';
+
+export interface BatchItemResult {
+  item_id: string;
+  filename: string;
+  success: boolean;
+  status: 'completed' | 'error';
+  analysis?: AnalysisResponse;
+  error?: string;
+}
+
+export interface BatchAnalysisResponse {
+  batch_id: string;
+  total_images: number;
+  successful_count: number;
+  failed_count: number;
+  results: BatchItemResult[];
+  combined_summary?: string;
+  question: string;
+  language: string;
+  total_duration_seconds: number;
+  timestamp: string;
+}
+
+export interface BatchSessionDeleteResponse {
+  batch_id: string;
+  cleared_count: number;
+  cleared: boolean;
+  message: string;
+}
+
+export interface QueueItem {
+  id: string;
+  file: File;
+  previewUrl: string;
+  status: 'pending' | 'uploading' | 'analyzing' | 'completed' | 'error' | 'cancelled';
+  error?: string;
+  analysis?: AnalysisResponse;
+}

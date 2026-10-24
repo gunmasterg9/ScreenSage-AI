@@ -131,3 +131,26 @@ response = client.models.generate_content(
 - **No Disk Persistence**: Screenshots are processed in RAM and ephemeral session cache; no raw screenshot files are saved to disk.
 - **Credential Protection**: `GOOGLE_API_KEY` is loaded strictly on the backend, excluded from Git via `.gitignore`, and omitted from `/api/ai/status` responses.
 - **No Autonomous Execution**: Suggestions provided in the explanation are purely advisory text for the user to review. The app never executes commands automatically.
+
+---
+
+## 5. Bulk Upload, Batch Analysis & Vercel Deployment Architecture
+
+### Batch Processing Design
+ScreenSage AI supports queuing and analyzing up to 10 screenshots in a single session:
+- **Client Queue**: The React frontend provides a responsive thumbnail queue with individual progress, status badges, remove, retry, and cancellation controls.
+- **Server Validation**: The FastAPI backend enforces server-side format (`PNG`, `JPEG`, `WEBP`), dimension, file size (10 MB/file), batch total size (30 MB max), and Pillow decompression bomb limits.
+- **Bounded Concurrency**: Uses an `asyncio.Semaphore` (configurable via `BATCH_CONCURRENCY=2`) to prevent exceeding Google AI API rate limits or cluster quotas while executing in parallel.
+- **Partial Failure Resilience**: If one screenshot is corrupted or exceeds limits, it is marked with an error while the remaining screenshots continue processing.
+- **Synthesized Overview**: An overarching multi-screen narrative (`synthesize_batch_summary`) correlates evidence across all screens.
+- **Ephemeral Lifecycle**: In-memory sessions are mapped to `batch_id` and can be purged immediately with `DELETE /api/batch-session/{batch_id}`.
+
+### Vercel Deployment Architecture & Constraints
+- **Vercel Serverless Function Limits**:
+  - Request body size limit: **4.5 MB** on Hobby and Pro plans.
+  - Execution duration timeout: **10 seconds** (Hobby) or **15–60 seconds** (Pro).
+  - Attempting to process large multi-image batches (10–30 MB) with multimodal inference directly inside Vercel serverless functions would result in immediate `413 FUNCTION_PAYLOAD_TOO_LARGE` errors and `504` execution timeouts.
+- **Recommended Production Topology**:
+  - **Frontend (Vercel)**: Deployed as a high-performance static Vite Single Page Application using `frontend/vercel.json`.
+  - **Backend (Dedicated FastAPI Host)**: Deployed on a persistent host (e.g. Render, Railway, Fly.io, or VPS) where body sizes up to 30 MB, execution durations up to 120s, and RAM-only session caching operate without serverless payload limits.
+  - **Connection**: Set `VITE_API_BASE=https://<your-deployed-backend-url>/api` in Vercel project environment variables to route requests directly to the dedicated backend.

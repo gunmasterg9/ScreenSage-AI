@@ -455,6 +455,48 @@ class GoogleGeminiService:
             duration,
         )
 
+    async def synthesize_batch_summary(
+        self,
+        question: str,
+        screen_summaries: List[Dict[str, str]],
+        language: str = "en",
+    ) -> str:
+        """
+        Generate a cohesive multi-screen synthesized overview answering the user's question
+        across all successfully analyzed screenshots in the batch.
+        """
+        if not screen_summaries:
+            return "No screens were successfully analyzed to generate a batch summary."
+
+        lang_instruction = LANGUAGE_INSTRUCTIONS.get(language, LANGUAGE_INSTRUCTIONS["en"])
+
+        screens_text = "\n\n".join(
+            f"Screen {idx + 1} ({item.get('filename', f'Image {idx + 1}')}):\n"
+            f"- Summary: {item.get('summary', '')}\n"
+            f"- Grounded Answer: {item.get('answer', '')}"
+            for idx, item in enumerate(screen_summaries)
+        )
+
+        prompt = (
+            f"You are ScreenSage AI. Synthesize an overarching multi-screen summary across {len(screen_summaries)} screenshots.\n"
+            f"User Question: \"{question}\"\n\n"
+            f"Analyzed Screen Details:\n{screens_text}\n\n"
+            f"{lang_instruction}\n"
+            "Provide a clear, cohesive 2-4 paragraph overview that:\n"
+            "1. Synthesizes what was discovered across the entire sequence of screenshots.\n"
+            "2. Explains the relationship or workflow between the screens (if applicable).\n"
+            "3. Directly addresses the user's question based on the combined visual evidence.\n"
+            "4. Highlights recommended next steps across the workflow.\n"
+            "Do not output markdown code fences or JSON; provide pure explanatory text."
+        )
+
+        try:
+            summary, _, _ = await self.generate_text(prompt)
+            return summary.strip()
+        except Exception as e:
+            logger.warning("Could not generate batch combined summary: %s", str(e))
+            return "Combined summary generation was unavailable, but individual screen analyses succeeded."
+
 
 # Global singleton instance
 google_service = GoogleGeminiService()

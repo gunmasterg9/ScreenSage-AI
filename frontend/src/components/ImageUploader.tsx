@@ -3,31 +3,46 @@ import { UploadCloud, Image as ImageIcon, Clipboard, FileWarning } from 'lucide-
 
 interface ImageUploaderProps {
   onImageSelected: (file: File) => void;
+  onFilesSelected?: (files: File[]) => void;
   disabled?: boolean;
 }
 
 const ALLOWED_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
-export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageSelected, disabled = false }) => {
+export const ImageUploader: React.FC<ImageUploaderProps> = ({
+  onImageSelected,
+  onFilesSelected,
+  disabled = false,
+}) => {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const processFile = (file: File) => {
+  const processFiles = (files: FileList | File[]) => {
     setUploadError(null);
+    const validFiles: File[] = [];
 
-    if (!ALLOWED_MIME_TYPES.includes(file.type)) {
-      setUploadError('Invalid format. Please upload a PNG, JPG, or WEBP screenshot.');
-      return;
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!ALLOWED_MIME_TYPES.includes(file.type)) {
+        setUploadError(`"${file.name}" is not a supported format. Please upload PNG, JPG, or WEBP.`);
+        continue;
+      }
+
+      if (file.size > MAX_FILE_SIZE) {
+        setUploadError(`"${file.name}" is too large. Maximum screenshot size is 10 MB.`);
+        continue;
+      }
+
+      validFiles.push(file);
     }
 
-    if (file.size > MAX_FILE_SIZE) {
-      setUploadError('File is too large. Maximum screenshot size is 10 MB.');
-      return;
+    if (validFiles.length > 1 && onFilesSelected) {
+      onFilesSelected(validFiles);
+    } else if (validFiles.length > 0) {
+      onImageSelected(validFiles[0]);
     }
-
-    onImageSelected(file);
   };
 
   // Listen for global clipboard paste (Ctrl+V screenshot)
@@ -37,20 +52,22 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageSelected, d
       const items = e.clipboardData?.items;
       if (!items) return;
 
+      const pastedFiles: File[] = [];
       for (let i = 0; i < items.length; i++) {
         if (items[i].type.startsWith('image/')) {
           const file = items[i].getAsFile();
-          if (file) {
-            processFile(file);
-            break;
-          }
+          if (file) pastedFiles.push(file);
         }
+      }
+
+      if (pastedFiles.length > 0) {
+        processFiles(pastedFiles);
       }
     };
 
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [disabled]);
+  }, [disabled, onFilesSelected, onImageSelected]);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -68,13 +85,13 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageSelected, d
     if (disabled) return;
 
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      processFile(e.dataTransfer.files[0]);
+      processFiles(e.dataTransfer.files);
     }
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      processFile(e.target.files[0]);
+      processFiles(e.target.files);
     }
   };
 
@@ -83,6 +100,7 @@ export const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageSelected, d
       <input
         ref={fileInputRef}
         type="file"
+        multiple
         accept="image/png,image/jpeg,image/webp"
         onChange={handleFileInputChange}
         className="hidden"

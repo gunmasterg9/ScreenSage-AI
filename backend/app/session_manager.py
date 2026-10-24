@@ -32,6 +32,7 @@ class SessionData:
 class SessionManager:
     def __init__(self):
         self._sessions: Dict[str, SessionData] = {}
+        self._batches: Dict[str, List[str]] = {}
         self._lock = Lock()
 
     def create_session(self, image_b64: str, metadata: dict) -> str:
@@ -42,6 +43,11 @@ class SessionManager:
         with self._lock:
             self._sessions[session_id] = session
         return session_id
+
+    def register_batch(self, batch_id: str, session_ids: List[str]):
+        """Map a batch_id to its contained session_ids for coordinated cleanup."""
+        with self._lock:
+            self._batches[batch_id] = session_ids
 
     def get_session(self, session_id: str) -> Optional[SessionData]:
         """Retrieve an active session by ID."""
@@ -61,6 +67,18 @@ class SessionManager:
                 del self._sessions[session_id]
                 return True
             return False
+
+    def delete_batch(self, batch_id: str) -> int:
+        """Explicitly purge all session data in a batch from memory."""
+        cleared_count = 0
+        with self._lock:
+            session_ids = self._batches.pop(batch_id, [])
+            for sid in session_ids:
+                if sid in self._sessions:
+                    self._sessions[sid].image_b64 = ""
+                    del self._sessions[sid]
+                    cleared_count += 1
+        return cleared_count
 
     def cleanup_expired(self):
         """Purge sessions older than SESSION_TTL_SECONDS."""

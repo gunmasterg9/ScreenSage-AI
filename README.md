@@ -19,7 +19,8 @@ ScreenSage AI helps people make sense of confusing software interfaces, desktop 
   - 📌 **Verbatim Visible Text**: Extracted error codes and labels directly from the screen.
   - 🚀 **Suggested Next Steps**: Actionable guidance on what to click or check next.
   - ⚠️ **Transparent Uncertainties**: Explicit notice of buttons or settings that are obscured or absent.
-- **Multi-Turn Follow-Up Questions**: Continue asking questions about the active screenshot in an ephemeral session without having to re-upload.
+- **Bulk Image Upload & Batch Analysis**: Queue and analyze up to 10 screenshots simultaneously with bounded concurrency, rate-limit resilience, per-image progress, and an overarching synthesized cross-screen summary.
+- **Multi-Turn Follow-Up Questions**: Continue asking questions about active screenshots in ephemeral sessions without having to re-upload.
 - **Privacy & Security by Design**:
   - Backend runs on `127.0.0.1` (localhost).
   - Screenshots are processed in RAM and ephemeral session cache only (1-hour TTL) — images are never permanently written to disk.
@@ -56,6 +57,11 @@ Create a `.env` file in the project root or inside `backend/`:
 GOOGLE_API_KEY=your_actual_google_api_key_here
 GOOGLE_GEMINI_MODEL=gemma-4-31b-it
 INFERENCE_TIMEOUT_SECONDS=120.0
+
+# Batch analysis limits & concurrency
+MAX_BATCH_IMAGES=10
+MAX_BATCH_TOTAL_SIZE_BYTES=31457280
+BATCH_CONCURRENCY=2
 ```
 
 > [!IMPORTANT]
@@ -140,11 +146,23 @@ python -m pytest backend/tests/test_real_google.py -v -s
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/health` | Returns backend health, model name, and tagline. |
-| `GET` | `/api/ai/status` | Reports configuration status without exposing secret keys. |
-| `POST` | `/api/analyze-screenshot` | Multipart form accepting `image`, `question`, and `language` ('en', 'hi', 'gu'). Returns structured explanation. |
+| `GET` | `/api/ai/status` | Reports configuration status, model, and batch limits without exposing secret keys. |
+| `POST` | `/api/analyze-screenshot` | Multipart form accepting single `image`, `question`, and `language`. Returns structured explanation. |
+| `POST` | `/api/analyze-batch` | Multipart form accepting multiple `images`, `question`, `language`, and `generate_summary`. Returns batch results + synthesis. |
 | `POST` | `/api/generate-text` | Accepts `{ "prompt": string }` for text reasoning verification. |
 | `POST` | `/api/follow-up` | Accepts `{ "session_id": string, "question": string, "language": string }` for multi-turn questions. |
 | `DELETE` | `/api/session/{id}` | Privacy endpoint: Immediately purges cached screenshot data from memory. |
+| `DELETE` | `/api/batch-session/{batch_id}` | Privacy endpoint: Immediately purges all screenshots for a batch from memory. |
+
+---
+
+## ⚡ Vercel Deployment & Constraints
+
+- **Vercel Limits**: Vercel Serverless Functions enforce a **4.5 MB request body limit** and **10s execution timeout** on Hobby plans. Direct processing of multi-screenshot batches (up to 30 MB) exceeds these constraints.
+- **Recommended Topology**:
+  - Deploy the React/Vite frontend to Vercel as a static SPA using `frontend/vercel.json`.
+  - Host the FastAPI backend on a dedicated host (e.g. Render, Railway, Fly.io, or VPS) with full 30 MB payload and 120s timeout support.
+  - Set `VITE_API_BASE=https://<your-backend-domain>/api` in Vercel environment variables to connect.
 
 ---
 
